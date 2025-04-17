@@ -1,0 +1,104 @@
+---
+title: "lab1_q3"
+author: "Helena Llorens Lluís (hllor282), Yi Yang (yiyan338)"
+date: "2025-04-16"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,echo=FALSE}
+library(ggplot2)
+```
+
+
+# 3. Bayesian inference  for the rate parameter in the Poisson distribution.
+
+
+We are going to derive the expression that the  posterior pdf $p(\lambda \mid y, \sigma)$ is proportional to. The observations are from the Poisson distribution with rate parameter  $\lambda>0$.The prior distribution of $\lambda>0$ is the **half-normal distribution** with prior pdf: $$ p(\lambda|\sigma) = \frac{\sqrt{2}}{\sigma\sqrt{\pi}} \exp\left(-\frac{\lambda^2}{2\sigma^2}\right), \; \lambda \geq 0 $$ From bayesian theorem, we know that the posterior is propotional the product of likelihood and the prior:
+$$ p(\theta \mid \text{Data})  \propto  p(\text{Data} \mid \theta) \, p(\theta)$$
+Then we could derive the expression of the posterior pdf :
+$$p(\lambda \mid y, \sigma) \propto \lambda^{\sum y_i} \, \exp\left(-n\lambda - \frac{\lambda^2}{2\sigma^2}\right), \quad \lambda \geq 0 $$
+We select a grid of $\lambda>0$ values from 0 to 7 and set the increment of the value equals to 0.5. We compute the posterior values and then use the following formulate to normalize  the values:
+$$
+\text{Normalized posterior} = \frac{p(\lambda)}{\sum p(\lambda) \cdot \Delta \lambda}
+$$
+The plot of the posterior distribution is shown as follows: 
+
+```{r echo=FALSE}
+#(a)
+y <- c(0,2,5,5,7,1,4)
+sigma <- 5
+
+#the expression of posterior distribution unnormalized
+posterior <- function(lambda,sigma,y){
+  s <- sum(y)
+  n <- length(y)
+  res <- lambda^(s)*exp(-n*lambda-(lambda^2)/(2*sigma^2))
+  return(res)
+}
+
+lambda_grid <- seq(0,7,by=0.05)
+
+unnormalized <- posterior(lambda_grid,sigma,y)
+normalized <- unnormalized/sum(unnormalized*0.05)
+
+#plot(x=lambda_grid,y=normalized,type = "p")
+df <- data.frame(lambda=lambda_grid,density=normalized)
+ggplot(data=df,mapping = aes(x=lambda,y=density))+
+  geom_point(color="#4E79A7")+
+  labs(title = "Plot of posterior distribution ")+
+  theme_classic()
+```
+
+```{r}
+mode_index <- which.max(normalized)
+mode <- lambda_grid[mode_index]
+cat("The approximate posterior mode of lambda is",mode,"\n")
+
+```
+
+
+
+
+
+
+
+
+
+# Appendix 
+## assignment 3
+```{r eval=FALSE}
+#(a)
+y <- c(0,2,5,5,7,1,4)
+sigma <- 5
+
+#the expression of posterior distribution unnormalized
+posterior <- function(lambda,sigma,y){
+  s <- sum(y)
+  n <- length(y)
+  res <- lambda^(s)*exp(-n*lambda-(lambda^2)/(2*sigma^2))
+  return(res)
+}
+
+lambda_grid <- seq(0,7,by=0.05)
+
+unnormalized <- posterior(lambda_grid,sigma,y)
+normalized <- unnormalized/sum(unnormalized*0.05)
+
+#plot(x=lambda_grid,y=normalized,type = "p")
+df <- data.frame(lambda=lambda_grid,density=normalized)
+ggplot(data=df,mapping = aes(x=lambda,y=density))+
+  geom_point(color="#4E79A7")+
+  labs(title = "Plot of posterior distribution ")+
+  theme_classic()
+
+#(b)
+mode_index <- which.max(normalized)
+mode <- lambda_grid[mode_index]
+cat("The approximate posterior mode of lambda is",mode,"\n")
+```
+
+
