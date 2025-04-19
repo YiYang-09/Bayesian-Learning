@@ -1,0 +1,109 @@
+---
+title: "Computer Lab1 - 732A73"
+author: "Helena Llorens Lluís (hllor282), Yi Yang (yiyan338)"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.dim=c(4, 2.5), fig.align='center')
+```
+
+```{r, echo=FALSE}
+library(ggplot2)
+```
+
+# 1. Daniel Bernoulli
+
+Let $y_1, ..., y_n|\theta \sim Bern(\theta)$, and assume a prior distribution for the parameter $\theta$ as $\theta \sim Beta(\alpha0, \beta0)$, with $\alpha_0 = \beta_0 = 7$. We have observed a sample of $n = 78$ trials with $f = 35$ failures. Using Bayes' theorem, the posterior distribution of $\theta$ is
+
+$$\theta|y \sim Beta(\alpha = \alpha_0 + s, \beta = \beta_0 + f)$$
+
+The theoretical (true) posterior mean and standard deviation are given by:
+
+$$E[\theta|y] = \frac{\alpha}{\alpha + \beta}$$
+$$SD[\theta|y] = \sqrt{\frac{\alpha\beta}{(\alpha + \beta)^2(\alpha + \beta + 1)}}$$
+
+To examine how estimates of the posterior mean and standard deviation behave as the number of random draws increases, we simulate 10000 samples from the posterior distribution and compute running estimates for both quantities. 
+
+
+```{r, echo=FALSE}
+n <- 78
+f <- 35
+s <- n - f
+alpha0 <- 7
+beta0 <- 7
+alpha <- alpha0 + s
+beta <- beta0 + f
+
+true_mean <- alpha / (alpha + beta)
+true_sd <- sqrt(alpha * beta / ((alpha + beta)^2 * (alpha + beta + 1)))
+
+set.seed(12345)
+draw <- rbeta(10000, shape1 = alpha, shape2 = beta)
+
+mean_vals <- numeric(9999)
+sd_vals <- numeric(9999)
+for(i in 1:10000){
+  mean_vals[i-1] <- mean(draw[1:i])
+  sd_vals[i-1] <- sd(draw[1:i])
+}
+
+# draw <- function(alpha, beta, N){
+#   set.seed(12345)
+#   draw <- rbeta(N, shape1 = alpha, shape2 = beta)
+#   mean_val <- mean(draw)
+#   sd_val <- sd(draw)
+#   return(c(mean_val, sd_val))
+# }
+# 
+# mean_vals <- numeric(9999)
+# sd_vals <- numeric(9999)
+# for(i in 2:10000){
+#   draws <- draw(alpha, beta, i)
+#   mean_vals[i-1] <- draws[1]
+#   sd_vals[i-1] <- draws[2]
+# }
+
+
+
+ggplot(mapping = aes(x = seq_along(mean_vals), y = mean_vals)) +
+  geom_line(color = "#4E79A7") +
+  geom_hline(yintercept = true_mean, color = "#E15759", linetype = "dashed") +
+  labs(title = "Convergence of Posterior Mean",
+       x = "Sample Size",
+       y = "Estimated Mean") +
+  theme_minimal()
+
+ggplot(mapping = aes(x = seq_along(sd_vals), y = sd_vals)) +
+  geom_line(color = "#4E79A7") +
+  geom_hline(yintercept = true_sd, color = "#E15759", linetype = "dashed") +
+  labs(title = "Convergence of Posterior Standard Deviation",
+       x = "Sample Size",
+       y = "Estimated SD") +
+  theme_minimal()
+```
+
+The plots above clearly illustrate that the estimates of the posterior mean and standard deviation converge toward their theoretical values as the number of random draws increases.
+
+```{r, echo=FALSE}
+prob <- sum((draw > 0.5))/10000 
+true_prob <- pbeta(0.5, alpha, beta, lower.tail = F)
+```
+
+Then, we compute the posterior probability $P(\theta > 0.5|y)$. The posterior probability of $\theta > 0.5$ is `r prob`, and the exact value of $\theta > 0.5$ from the Beta posterior is `r true_prob`.
+
+Finally, we draw 10000 random values from the posterior of the odds $\phi = \frac{\theta}{1 - \theta}$ and plot the posterior distribution of $\phi$.
+
+```{r, echo=FALSE}
+odds <- draw/(1 - draw)
+
+ggplot(mapping = aes(x = odds)) +
+  geom_histogram(aes(y = ..density..), bins = 50, fill = "#4E79A7", color = "white", alpha = 0.7) +
+  geom_density(color = "#E15759", size = 1) +
+  labs(title = expression(paste("Distribution of ", phi)),
+       x = expression(phi),
+       y = "Density") +
+  theme_minimal()
+```
+
+
