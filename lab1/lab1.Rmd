@@ -66,6 +66,29 @@ ggplot(mapping = aes(x = seq_along(sd_vals), y = sd_vals)) +
   theme_minimal()
 ```
 
+The plots above clearly illustrate that the estimates of the posterior mean and standard deviation converge toward their theoretical values as the number of random draws increases.
+
+```{r, echo=FALSE}
+prob <- sum((draw > 0.5))/10000 
+true_prob <- pbeta(0.5, alpha, beta, lower.tail = F)
+```
+
+Then, we compute the posterior probability $P(\theta > 0.5|y)$. The posterior probability of $\theta > 0.5$ is `r prob`, and the exact value of $\theta > 0.5$ from the Beta posterior is `r true_prob`.
+
+Finally, we draw 10000 random values from the posterior of the odds $\phi = \frac{\theta}{1 - \theta}$ and plot the posterior distribution of $\phi$.
+
+```{r, echo=FALSE}
+odds <- draw/(1 - draw)
+
+ggplot(mapping = aes(x = odds)) +
+  geom_histogram(aes(y = ..density..), bins = 50, fill = "#4E79A7", color = "white", alpha = 0.7) +
+  geom_density(color = "#E15759", size = 1) +
+  labs(title = expression(paste("Distribution of ", phi)),
+       x = expression(phi),
+       y = "Density") +
+  theme_minimal()
+```
+
 
 # 2.Log-normal distribution and the Gini coefficient 
 

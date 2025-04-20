@@ -1,3 +1,7 @@
+# Computer Lab1 - 732A73
+# Helena Llorens Lluís (hllor282), Yi Yang (yiyan338)
+#----------------------------------------------------------------------------------------------------------
+
 # ASSIGNMENT 1
 # data and parameters
 n <- 78
