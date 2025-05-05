@@ -1,0 +1,192 @@
+---
+title: ''
+author: "Helena Llorens Lluís (hllor282), Yi Yang (yiyan338)"
+output: pdf_document
+header-includes:
+  - \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.dim=c(3.5, 3), fig.align='center', fig.pos = 'H', par(mar = c(0, 2, 0, 1), oma = c(1, 1, 1, 1)))
+```
+
+# 1. Linear and polynomial regression
+
+We aim to model daily average temperatures in Linköping using the following quadratic Bayesian regression model:
+
+$$temp = \beta_0 + \beta_1 \cdot time + \beta_2 \cdot time^2 + \epsilon, \ \epsilon \sim N(0, \sigma^2)$$
+
+Here, $time$ is defined as the number of days since the start of the observation period divided by 365, i.e., a scaled time variable ranging from 0 to 1.
+
+We place a conjugate prior on the parameters $\beta$ and the error variance $\sigma^2$: 
+
+$$\beta|\sigma^2 \sim N(\mu_0, \sigma^2 \Omega_0^{-1}), \ \ \sigma^2 \sim \text{Inv}-\chi^2(\nu_0, \sigma_0^2)$$
+
+We began with the following prior hyperparameters: $\mu_0 = (0, -100, 100)^T$, $\Omega_0 = 0.01 \cdot I_3$, $\nu_0 = 1$ and $\sigma_0^2 = 1$. 
+
+However, when sampling from this prior and visualizing the resulting regression curves, we found that most curves did not align with our prior belief that temperature should vary smoothly within a realistic range (-20°C to +30°C) over the course of the year. Many curves were too extreme due to overly vague prior variances.
+
+To better reflect plausible seasonal temperature patterns, we adjusted the priors to: $\mu_0 = (20, -100, 100)$ (reflecting a mean intercept of 20°C) and $\Omega_0 = 50 \cdot I_3$ (wider spread but still regularizing). These new priors produce more reasonable prior predictive regression curves.
+
+```{r, echo=FALSE, fig.cap='Prior Predictive Regression Curves'}
+# load data
+data <- read.csv("D:\\liu\\BL\\Bayesian-Learning\\lab2\\temp_linkoping.csv")
+n <- nrow(data)
+y <- data$temp
+x <- data$time
+
+# (a)
+# prior hyperparameters
+
+mu0 <- t(c(20, -100, 100))
+omega0 <- 50 * diag(3)
+nu0 <- 1
+sigma0 <- 1
+
+scale_inv_chi <- function(nu0, sigma0, N) {
+   sigma0 <- as.numeric(sigma0)
+   samples <- (nu0 * sigma0) / rchisq(N, df = nu0)
+   return(samples)
+}
+
+N <- 50
+set.seed(123)
+prior_sigma <- scale_inv_chi(nu0, sigma0, N)
+prior_beta <- matrix(NA, nrow = N, ncol = 3)
+for(i in 1:N){
+  prior_beta[i, ] <- mvtnorm::rmvnorm(n = 1, mean = mu0, sigma = prior_sigma[i] * solve(omega0))
+}
+
+# Plot prior regression curves
+plot(data$time, y, col = "#BAB0AC", pch = 20, 
+     xlab = "Time", ylab = "Temperature", ylim = c(-20, 30))
+for (i in 1:N) {
+  curve <- prior_beta[i, 1] + prior_beta[i, 2] * data$time + prior_beta[i, 3] * data$time^2
+  lines(data$time, curve, col = "#4E79A7")
+}
+# , main = "Prior Predictive Regression Curves"
+```
+
+The prior predictive curves reflect a wide but plausible range of behaviors for seasonal temperature trends in Linköping. Most curves follow a quadratic seasonal pattern, peaking or dipping around the center of the time range, consistent with expected annual temperature fluctuations. This confirms that the revised priors are now better aligned with prior beliefs.
+
+We now aim to simulate draws from the joint posterior distribution of the model parameters $\beta_0, \beta_1, \beta_2$ and $\sigma^2$. Based on conjugate Bayesian linear regression theory, the posterior distributions are given by:
+
+$$\beta|\sigma^2 \sim N(\mu_n, \sigma^2\Omega_n^{-1}), \ \ \sigma^2|y \sim \text{Inv} - \chi^2(\nu_n, \sigma^2_n)$$
+
+with updated hyperparameters:
+
+$$\mu_n = (X'X + \Omega_0)^{-1} (X'X\hat{\beta} + \Omega_0\mu_0)$$
+$$\Omega_n = X'X + \Omega_0$$
+$$\nu_n = \nu_0 + n$$
+$$\sigma_n^2 = \frac{1}{\nu_n}( \nu_0 \sigma_0^2 + (y'y + \mu_0'\Omega_0\mu_0 + \mu_n'\Omega_n\mu_n))$$
+
+We simulate from the posterior and visualize the marginal distributions of each parameter:
+
+```{r, echo=FALSE, fig.cap=c('Marginal posterior of $\\sigma$', 'Marginal posterior of $\\beta_0$', 'Marginal posterior of $\\beta_1$', 'Marginal posterior of $\\beta_2$')}
+# (b)
+X <- matrix(c(rep(1, n), data$time, data$time^2), ncol = 3)
+Y <- y
+posterior <- function(mu0, omega0, nu0, sigma0, X, Y, N, p){
+  beta <- solve(t(X) %*% X) %*% t(X) %*% Y
+  mu_n <- solve(t(X) %*% X + omega0) %*% (t(X) %*% X %*% beta + omega0 %*% matrix(mu0, ncol = 1))
+  omega_n <- t(X) %*% X + omega0
+  nu_n <- nu0 + nrow(X)
+  sigma_n <- (nu0 * sigma0 + 
+                (t(Y) %*% Y + t(matrix(mu0, ncol = 1)) %*% omega0 %*% matrix(mu0, ncol = 1) - 
+                   t(mu_n) %*% omega_n %*% mu_n))/nu_n
+  post_sigma <- scale_inv_chi(nu_n, sigma_n, N)
+  post_beta <- matrix(NA, nrow = N, ncol = p + 1)
+  for(i in 1:N){
+    post_beta[i, ] <- mvtnorm::rmvnorm(n = 1, mean = mu_n, sigma = post_sigma[i] * solve(omega_n))
+  }
+  
+  return(list(sigma = post_sigma, beta = post_beta))
+}
+
+set.seed(123)
+post <- posterior(mu0, omega0, nu0, sigma0, X, Y, N, 2)
+
+hist(post$sigma, col = "#4E79A7", xlab = expression(sigma), main = "")
+hist(post$beta[, 1], col = "#4E79A7", xlab = expression(beta[0]), main = "")
+hist(post$beta[, 2], col = "#4E79A7", xlab = expression(beta[1]), main = "")
+hist(post$beta[, 3], col = "#4E79A7", xlab = expression(beta[2]), main = "")
+
+#,  main = expression(paste("Marginal posterior of ", sigma))
+```
+
+T o summarize the uncertainty in the regression function $f(time) = E[temp|time] = \beta_0 + \beta_1 \cdot time + \beta_2 \cdot time^2$, we compute the posterior median curve for $f(time)$ and the 90% equal-tail credible interval.
+
+```{r, echo=FALSE, fig.cap = 'Posterior Regression Curve with 90% Credible Intervals'}
+time_grid <- seq(min(data$time), max(data$time), length.out = 100)
+f_pred_draws <- matrix(NA, nrow = N, ncol = length(time_grid))
+for (i in 1:N) {
+  f_mean <- post$beta[i, 1] + post$beta[i, 2] * time_grid + post$beta[i, 3] * time_grid^2
+  f_pred_draws[i, ] <- rnorm(length(time_grid), mean = f_mean, sd = sqrt(post$sigma[i]))
+}
+
+pred_median <- apply(f_pred_draws, 2, median)
+pred_lb <- apply(f_pred_draws, 2, quantile, probs = 0.05)
+pred_ub <- apply(f_pred_draws, 2, quantile, probs = 0.95)
+
+# Plot data
+plot(x, y, col = "#BAB0AC", pch = 20,
+     main = "",
+     xlab = "Time", ylab = "Temperature")
+
+# Add posterior median curve
+lines(time_grid, pred_median, col = "#4E79A7", lwd = 2)
+
+# Add 90% posterior credible interval
+lines(time_grid, pred_lb, col = "#E15759", lty = 2)
+lines(time_grid, pred_ub, col = "#E15759", lty = 2)
+```
+
+The posterior median curve closely follows the seasonal temperature pattern suggested by the data. The 90% credible intervals cover most observed data points, as expected. Since the regression model accounts for observation noise ($\epsilon \sim N(0, \sigma^2)$) we expect a large proportion of data points to fall within the interval—but not necessarily all. Roughly 90% of them should, under the assumption that the model is well-calibrated.
+
+We are interested in identifying the time $\tilde{x}$ at which the expected temperature reaches its minimum. Since the regression function is a quadratic polynomial, the minimum occurs at 
+
+$$\tilde{x} = - \frac{\beta_1}{2\beta_2}$$
+
+Using the posterior draws of $\beta_1$ and $\beta_2$ obtained previously, we simulate the posterior distribution of $\tilde{x}$.
+
+```{r, echo=FALSE, fig.cap='Posterior Distribution of $\\tilde{x}$'}
+x_tilde <- -post$beta[, 2] / (2*post$beta[, 3])
+
+# Plot histogram
+hist(x_tilde, col = "#4E79A7",
+     main = "",
+     xlab = "Time (fraction of year since start)", xlim = c(0.49, 0.52))
+```
+
+As shown in the histogram, the posterior distribution of $\tilde{x}$ is concentrated around the middle of the winter period (January), which aligns well with prior expectations for the coldest time of year in Linköping. The narrow distribution suggests high certainty in the estimate, given the data.
+
+We now estimate a polynomial regression of order 10. However, since higher-order polynomial terms may not contribute significantly to explaining the data—and could even lead to overfitting—we choose a shrinkage prior to regularize the model and mitigate this risk.
+
+We again use the conjugate prior:
+
+$$\beta|\sigma^2 \sim N(\mu_0, \sigma^2 \Omega_0^{-1}), \ \ \sigma^2 \sim \text{Inv}-\chi^2(\nu_0, \sigma_0^2)$$
+
+To reflect our belief that only the lower-order terms (e.g., constant, linear, quadratic) are likely to be influential, we set: $\mu_0 = (20, -100, 100, 0, 0, 0, 0, 0, 0, 0, 0)^T$, $\Omega_0 = 50 \cdot I_11$, $\nu_0 = 1$ and $\sigma_0^2 = 1$. 
+
+This prior centers the first three coefficients on meaningful values while shrinking the remaining higher-order terms toward zero, discouraging unnecessary model complexity.
+
+We now simulate from the joint prior to generate prior predictive regression curves:
+
+```{r, echo=FALSE}
+# (d) 10th-order polynomial regression with shrinkage prior
+p <- 10
+mu0_poly <- c(20, -100, 100, rep(0, p - 2))
+lambda <- 50
+omega0_poly <- lambda * diag(p + 1) 
+
+# Plot prior predictive regression curves for poly
+plot(data$time, y, col = "#BAB0AC", pch = 20, main = "Prior Predictive Regression Curves", 
+     xlab = "Time", ylab = "Temperature", ylim = c(-30, 40))
+for (i in 1:N) {
+  beta_i <- mvtnorm::rmvnorm(1, mu0_poly, prior_sigma[i] * solve(omega0_poly))
+  y_pred <- sapply(time_grid, function(t) sum(beta_i * t^(0:p)))
+  lines(time_grid, y_pred, col = "#4E79A7")
+}
+```
+
+As shown in the plot, the shrinkage prior successfully constrains the model's flexibility. Most curves resemble smooth, low-degree polynomials, and avoid the erratic behavior typically associated with unregularized high-order models. This behavior is consistent with our prior belief that only the lower-degree terms are essential for capturing the seasonal temperature trend.
