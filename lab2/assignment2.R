@@ -31,7 +31,7 @@ LogPostLogistic <- function(betas,y,X,mu,Sigma){
 
 #set the prior
 mu <- rep(0,ncol(X))
-sigma <- 2*diag(ncol(X))
+sigma <- 4*diag(ncol(X))
 #initial beta
 initVal <- rep(0,ncol(X))
 
@@ -74,7 +74,7 @@ beta_sample <- rmvnorm(1000,mean =approxPostMode,sigma=solve(-OptimRes$hessian))
 predict_probs <- numeric(nrow(beta_sample)) 
 for (i in 1:nrow(beta_sample)) {
   beta <- beta_sample[i,]
-  linPred <- sum(xnew*beta)
+  linPred <- sum(xnew_normalized*beta)
   prob <- 1/(1+exp(-linPred))
   predict_probs[i] <- prob
 }
@@ -82,3 +82,4 @@ for (i in 1:nrow(beta_sample)) {
 
 hist(predict_probs,breaks = 30,probability = T,main = "Posterior Predictive Distribution",xlab = "P(y=1|x)")
 lines(density(predict_probs), col = "darkblue", lwd = 2)
+
