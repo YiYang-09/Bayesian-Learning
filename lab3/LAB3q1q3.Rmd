@@ -1,0 +1,553 @@
+---
+title: "Computer Lab3 - 732A73"
+author: "Helena Llorens Lluís (hllor282), Yi Yang (yiyan338)"
+date: "2025-05-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align='center', fig.pos = 'H', par(mar = c(0, 2, 0, 1), oma = c(1, 1, 1, 1)))
+library("BayesLogit")
+library("mvtnorm")
+library("rstan")
+library("bayesplot")
+library("knitr")
+```
+
+##  1. Gibbs sampling for the logistic regression
+
+We aim to implement a Gibbs sampler for a logistic regression model using Polya-Gamma latent variable augmentation.We augment the data with Polya-gamma latent $variables^2$,$i=1,...n$:
+$$ 
+\omega_i = \frac{1}{2\pi^2} \sum_{k=1}^{\infty} \frac{g_k}{\left(k - \frac{1}{2}\right)^2 + \left(\frac{x_i' \beta}{4\pi^2}\right)^2}
+$$
+ where $g_k\sim Exp(1)$ are independent draws from the exponential distribution with mean.This representation allows the logistic likelihood to be expressed in a conditionally Gaussian form, enabling efficient Bayesian updates.  
+ 
+Given the augmented latent variables $\omega = (\omega_1, ..., \omega_n)$, we sample from the joint posterior $p(\omega, \beta \mid y)$ using the following steps:
+
+1. Sample latent variables:$\omega_i \mid \beta \sim \text{PG}(1, x_i^\top \beta), \quad i = 1, \dots, n$  
+
+2. Sample regression coefficients $\beta$ from the multivariate normal posterior:$\beta \mid y, \omega \sim \mathcal{N}(m_\omega, V_\omega)$  
+where:$V_\omega = \left(X^\top \Omega X + B^{-1} \right)^{-1}$,
+$m_\omega = V_\omega \left(X^\top \kappa + B^{-1}b \right)$
+With:
+
+$$
+\kappa = \begin{pmatrix}
+y_1 - \frac{1}{2} \\
+\vdots \\
+y_n - \frac{1}{2}
+\end{pmatrix}
+$$
+
+$$
+\Omega = \text{diag}(\omega_1, \dots, \omega_n)
+$$
+
+$$
+\beta \sim \mathcal{N}(b, B)
+$$
+We assume a normal prior on the coefficients $\boldsymbol{\beta} \sim \mathcal{N}(0, \tau^2 I)$ with $\tau = 3$.And evaluate convergence using trace plots and Inefficiency Factors (IFs).The Inefficiency Factor (IF) measures how much autocorrelation is present in the Markov Chain. An IF close to 1 indicates nearly independent samples (ideal), while larger values suggest higher autocorrelation and less efficient sampling.
+
+
+```{r echo=FALSE,out.width="60%", fig.align="center"}
+#(a)
+#read data
+data <- read.csv("Disease.csv")
+data <- as.data.frame(data)
+
+#normalize age, symtoms and white blood counts
+age_mean <- mean(data$age)
+age_sd <- sd(data$age)
+duration_mean <- mean(data$duration_of_symptoms)
+duration_sd <- sd(data$duration_of_symptoms)
+white_mean <- mean(data$white_blood)
+white_sd <- sd(data$white_blood)
+
+data[,2] <- (data[,2]-age_mean)/age_sd
+data[,4] <- (data[,4]-duration_mean)/duration_sd
+data[,6] <- (data[,6]-white_mean)/white_sd
+
+y <- data[,7] # response
+X <- as.matrix(data[,1:6]) # Covariates
+
+
+# prior sigma2
+sigma2 <- 3^2
+
+#number of iterations
+num_iterations <- 1000
+
+
+#Gibbs sampling
+gibbs <- function(X,y,num_iterations,sigma2){
+  if(nrow(X)!=length(y))
+    stop("X and y should have the same length.")
+  
+  n <- nrow(X)
+  p <- ncol(X)
+  
+  #initialize beta
+  beta_samples <- matrix(NA,nrow = num_iterations,ncol = p)
+  beta <- rep(0,p)
+  
+  
+for (i in 1:num_iterations) {
+  #latent variable omega
+  #scale parameter for PG(1,x*beta)
+  scalePar <- X%*%beta
+  #construct latent variables for each observation thus num=n
+  omega_variable <- rpg(num=n,h=rep(1,n),z=scalePar) #poly-Gamma sampling
+  
+  #update beta
+  Omega_diagmatrix <- diag(omega_variable)
+  
+  V_inverse <- t(X) %*% Omega_diagmatrix %*%X +diag(1/sigma2,p)
+  V <- solve(V_inverse) 
+ 
+  k <- y-0.5
+  b <- rep(0,p) #prior mean
+  m <- V%*%(t(X)%*%k+solve(diag(1/sigma2,p))%*%b)           
+  beta <- as.vector(rmvnorm(1,mean = m,sigma = V ))
+  
+  beta_samples[i,] <- beta
+}
+  return(beta_samples)
+}
+set.seed(12345)
+result <- gibbs(X=X,y=y,num_iterations=1000,sigma2 = 3^2)
+
+#compute IFs ,lag.max = max_lag ,max_lag=100
+
+Ifs <- function(chain){
+  acf <- acf(chain,plot=F)$acf[-1]
+  return(1+2*sum(acf))
+}
+  
+IFs_a <- apply(result, 2,Ifs)
+IFs_df <- as.data.frame(IFs_a,row.names = c("beta1","beta2","beta3","beta4","beta5","beta6"))
+
+kable(IFs_df,caption = "Inefficiency Factors")
+
+#compute Ifs using coda package
+#library("coda")
+#mcmc_result <- as.mcmc(result)
+#ess <- effectiveSize(mcmc_result)
+#ifactor <- nrow(result)/ess
+
+#plot the trajectories of the sampled Markov chains
+
+par(mfrow=c(2,3))
+for (i in 1:ncol(result)) {
+  plot(result[,i],type="l",col="#4E79A7",
+       main=paste("Traceplot of beta",i),
+       xlab=paste("beta",i),
+       ylab="Iteartion",
+       lwd=1)
+}
+```
+The estimated Inefficiency Factors (IFs) for the six regression coefficients range from approximately 0.93 to 1.34. Most parameters exhibit IFs close to 1, indicating efficient sampling with low autocorrelation. Overall, the Gibbs sampler appears to perform well in terms of sampling efficiency.  
+
+The trace plots for all six parameters exhibit good mixing and stationarity, with no apparent trends or drifts. The chains fluctuate steadily around stable means, indicating that the sampler has converged and is effectively exploring the posterior distribution.  
+
+Then, we repeat the Gibbs sampling procedure described in (a), but only using the first 
+**m** observations of the dataset.We implement the sampling for $m=10,40,80$, and then analyze the  posterior draws for the regression coefficients $\beta$. The Gibbs sampler is run for **1000** iterations, using the same prior variance$\sigma^2=3^2$.  
+
+ $m=10$:
+```{r echo=FALSE,out.width="60%", fig.align="center"}
+#(b)
+#m=10
+set.seed(12345)
+result_10 <- gibbs(X=X[1:10,],y=y[1:10],num_iterations=1000,sigma2 = 3^2)
+IFs_10 <- apply(result_10, 2, Ifs)
+
+IFs10_df <- as.data.frame(IFs_10,row.names = c("beta1","beta2","beta3","beta4","beta5","beta6"))
+kable(IFs10_df,caption = "Inefficiency Factors when m=10")
+
+par(mfrow=c(2,3))
+for (i in 1:ncol(result_10)) {
+  plot(result_10[,i],type="l",col="#4E79A7",
+       main=paste("Traceplot of beta",i),
+       xlab=paste("beta",i),
+       ylab="Iteartion",
+       lwd=1)
+}
+
+
+
+```
+
+ $m=40$:
+```{r echo=FALSE,out.width="60%", fig.align="center"}
+#m=40
+set.seed(12345)
+result_40 <- gibbs(X=X[1:40,],y=y[1:40],num_iterations=1000,sigma2 = 3^2)
+IFs_40 <- apply(result_40, 2, Ifs)
+IFs40_df <- as.data.frame(IFs_40,row.names = c("beta1","beta2","beta3","beta4","beta5","beta6"))
+kable(IFs40_df,caption = "Inefficiency Factors when m=40")
+
+
+par(mfrow=c(2,3))
+for (i in 1:ncol(result_40)) {
+  plot(result_40[,i],type="l",col="#4E79A7",
+       main=paste("Traceplot of beta",i),
+       xlab=paste("beta",i),
+       ylab="Iteartion",
+       lwd=1)
+}
+```
+
+ $m=80$:
+```{r echo=FALSE,out.width="60%", fig.align="center"}
+#m=80
+set.seed(12345)
+result_80 <- gibbs(X=X[1:80,],y=y[1:80],num_iterations=1000,sigma2 = 3^2)
+IFs_80 <- apply(result_80, 2, Ifs)
+IFs80_df <- as.data.frame(IFs_80,row.names = c("beta1","beta2","beta3","beta4","beta5","beta6"))
+kable(IFs80_df,caption = "Inefficiency Factors when m=80")
+
+par(mfrow=c(2,3))
+for (i in 1:ncol(result_80)) {
+  plot(result_80[,i],type="l",col="#4E79A7",
+       main=paste("Traceplot of beta",i),
+       xlab=paste("beta",i),
+       ylab="Iteartion",
+       lwd=1)
+}
+```
+
+For almost all coefficients, the inefficiency factors decrease significantly as $m$ increases from 10 to 80.This shows that the posterior draws become more efficient (less autocorrelated) with more data and the posterior becomes more concentrated.However, we observe an interesting phenomenon at $m=40$, where some coefficients (notably $\beta_6$) exhibit noticeably higher inefficiency factors compared to both $m=10$ and $m=80$.
+This suggests that with a moderate sample size, the Markov chains may experience temporary mixing issues or higher posterior uncertainty for certain parameters. Such non-monotonic behavior could be due to increased complexity in the posterior landscape  that temporarily affect sampling efficiency. Therefore, it is important to not assume that increasing the sample size always leads to smoother convergence—performance can fluctuate depending on the structure of the data and the parameter space.
+
+
+
+
+
+
+
+##  2. Metropolis Random Walk for Poisson regression
+
+
+
+
+question 2 here
+
+
+
+
+
+
+##  3. Time series models in Stan
+
+We aim to simulate and fit an AR(1) (Auto-Regressive of order 1) process to study how the current value of a time series depends on its previous value. The AR(1) model is defined as:
+
+$$
+x_t = \mu + \phi(x_{t-1} - \mu) + \varepsilon_t, \quad \varepsilon_t \sim \mathcal{N}(0, \sigma^2)
+$$
+where:  
+$\mu$ is the long-term (stationary) mean of the process.  
+$\phi$ is the autoregressive coefficient, which determines how strongly the past value influences the current one.  
+$\sigma^2$is the variance of the Gaussian noise.  
+$|\phi| < 1$ensures stationarity of the process.  
+We first write a function simulates data from the AR(1) model, then use $\mu=5$, $\sigma^2=9$, and $t=300$ with values of $\phi$ between `-1 and 1`.The plots show as follows:
+
+```{r echo=FALSE}
+#AR(1)-process
+set.seed(12345)
+AR1 <- function(mu,phi,sigma2,t){
+  points <- numeric(t)
+  points[1] <- mu
+  for (i in 2:t){
+    xt <- mu+phi*(points[i-1]-mu)+rnorm(1,mean = 0,sd=sqrt(sigma2))
+    points[i] <- xt
+  }
+return(points)
+}
+
+#result1 <- AR1(mu=5,phi=0.8,sigma2 = 9,t=300)
+
+phi_vals <- c(-0.9,-0.2,0,0.2,0.9)
+par(mfrow=c(2,3))
+set.seed(12345)
+for (phi in phi_vals) {
+  x <- AR1(mu=5,phi=phi,sigma2 = 9,t=300)
+  plot(x,type="l",main=paste("phi = ",phi),
+       xlab=" Time ",
+       ylab=expression(x[t]),
+       col="#4E79A7",
+       lwd=1)
+  
+}
+```
+From the plots, we observe that the value of $\phi=-0.9,-0.2,0,0.2,0.9$ has a strong influence on the behavior of the time series.
+- When $\phi=0$, the time series behaves like white noise: each value is independent and identically distributed with no dependence on past values.
+- When $\phi>0$, especially near 1 (e.g., $\phi=0.9$), the series shows strong positive autocorrelation: values change slowly, resulting in smoother and more persistent trends.
+- When $\phi<0$, especially near -1 (e.g., $\phi=-0.9$), the series exhibits negative autocorrelation: values tend to alternate direction rapidly, creating high-frequency oscillations.
+- As $\phi\to1$, the process changes more slowly and stays in the same direction longer, meaning that past values have a stronger influence on current values.
+
+Then,we focus on performing Bayesian inference for the parameters of an AR(1) process using Stan, based on simulated data from Question 1.  
+We first use the `AR1()` function (from Question 1) to simulate two datasets of length $t=300$ with known parameters:  
+-Dataset1: $\mu=5$,$\phi=0.4$ and $\sigma^2=9$  
+-Dataset2: $\mu=5$,$\phi=0.98$ and $\sigma^2=9$ 
+
+**Bayesian Model Specification**  
+
+We use a Bayesian approach to estimate the three parameters:$\mu=$,$\phi$ and $\sigma$,where $\sigma = \sqrt{\sigma^2}$.The model was defined in Stan as:  
+$$x_1 \sim \mathcal{N}(\mu, \sigma)$$
+$$x_t \sim \mathcal{N}(\mu + \phi(x_{t-1} - \mu), \sigma), \quad t = 2, \dots, T$$
+
+**Priors**  
+We use weakly informative (non-informative) priors to reflect minimal prior knowledge:  
+$\mu \sim \mathcal{N}(0, 100)$:wide prior covering possible values of the mean.  
+$\phi \sim \text{Uniform}(-1, 1)$:ensures stationarity of the AR(1) process.  
+$\sigma \sim \text{Cauchy}(0, 5)$:a common heavy-tailed prior for scale parameters, weakly informative.  
+
+We run the Stan model with 4 chains and 2000 iterations for each dataset, and summarized the posterior results:
+
+```{r echo=FALSE}
+library("rstan")
+
+#phi=0.4
+data1 <- AR1(mu=5,phi=0.4,sigma2=9,t=300)
+
+stan_data1 <- list(
+  T=length(data1),
+  x=data1
+)
+
+#phi=0.98
+data2 <- AR1(mu=5,phi=0.98,sigma2=9,t=300)
+
+stan_data2 <- list(
+  T=length(data1),
+  x=data2
+)
+
+stan_model_code <- "
+data{
+  int<lower=1> T; #time points
+  vector[T] x;    #sequence
+}
+
+parameters {
+  real mu;
+  real<lower=-1, upper=1> phi;
+  real<lower=0> sigma;  #! using sigma instead of sigma2, more stable
+}
+
+  
+model{
+  mu~normal(0,100);
+  phi ~ uniform(-1, 1);
+  sigma~cauchy(0,5);  #heavy tail
+  x[1]~normal(mu,sigma);
+  for (t in 2:T) {
+    x[t]~ normal(mu+phi*(x[t-1]-mu),sigma);
+  }
+}  
+"
+
+
+
+```
+
+```{r echo=FALSE}
+fit1 <- stan(
+  model_code = stan_model_code,
+  data=stan_data1,
+  iter=2000,
+  chains=4,
+  seed=12345,
+  refresh=0
+)
+
+fit2 <- stan(
+  model_code = stan_model_code,
+  data=stan_data2,
+  iter=2000,
+  chains=4,
+  seed=12345,
+  refresh=0
+)
+
+
+```
+
+
+```{r echo=FALSE}
+# mean of posterior, 95%ci,num of effective samples
+sum_fit1 <-summary(fit1)$summary
+fit1_df <- sum_fit1[1:3,c("mean","2.5%","97.5%","n_eff")]
+
+kable(fit1_df,caption = "Posterior mean, 95% CIs and the number of ef
+fective posterior samples(phi=0.4)")
+
+sum_fit2 <-summary(fit2)$summary
+fit2_df <- sum_fit2[1:3,c("mean","2.5%","97.5%","n_eff")]
+kable(fit2_df,caption = "Posterior mean, 95% CIs and the number of ef
+fective posterior samples(phi=0.98)")
+```
+
+For $\phi=0.4$, all 95% credible intervals contain the true values,the effective sample sizes (`n_eff` > 3700 for all parameters) are large, indicating good mixing and reliable inference.
+
+For $\phi=0.98$, the posterior mean for $\phi$ is  close to the true value, and CI is tight. For $\mu$,although the posterior mean is 5.84, the 95% CI is very wide: [0.13, 11.39], showing high uncertainty.For $\sigma$,its posterior mean (2.95) is again close to the true value, but with wider uncertainty compared to the $\phi=0.4$ case.The effective sample sizes (`n_eff`: 2200–2400) are lower than the first case but still acceptable.  
+
+While we can estimate $\phi$ and $\sigma$ reasonably well, estimating $\mu$ becomes much harder when $\phi$ is close to 1, due to the process becoming more persistent and the data offering less information about the long-run mean.
+
+**Convergence Diagnostics and Joint Posterior Plots**  
+We evaluate sampler convergence using two standard diagnostics:  
+- $\hat{R}$ (Gelman-Rubin statistic): all parameters had $\hat{R} \approx 1$, indicating convergence.  
+- Effective Sample Size (n\_eff):  
+  - For $\phi = 0.4$: n_eff $>$ 3700 for all parameters.  
+  - For $\phi = 0.98$: n_eff between 2200–2400.  
+The chains mix well in both cases.Slightly lower `n_eff` when $\phi = 0.98$, reflecting slower mixing due to high autocorrelation in the data.  
+
+We use `mcmc_pairs()` to plot the joint posterior samples of $\mu$ and $\phi$:
+```{r echo=FALSE,out.width="60%", fig.align="center"}
+#plot the joint posteriors of mu and phi
+posterior1 <- as.array(fit1)
+mcmc_pairs(posterior1, pars = c("mu", "phi"))
+
+  
+posterior2 <- as.array(fit2)
+mcmc_pairs(posterior2, pars = c("mu", "phi"))
+```
+
+For the dataset with low autocorrelation ($\phi = 0.4$), the posterior samples are well-mixed, showing no significant correlation between parameters. This indicates efficient sampling and good convergence.
+
+In contrast, the high-autocorrelation dataset ($\phi= 0.98$) yields a highly correlated posterior between $\mu$ and $\phi$,with long, stretched shapes in the joint distribution plots. This is expected as the process approaches non-stationarity, making posterior inference more challenging and potentially slowing convergence.
+
+```{r eval=FALSE}
+#(a)
+
+#AR(1)-process
+set.seed(12345)
+AR1 <- function(mu,phi,sigma2,t){
+  points <- numeric(t)
+  points[1] <- mu
+  for (i in 2:t){
+    xt <- mu+phi*(points[i-1]-mu)+rnorm(1,mean = 0,sd=sqrt(sigma2))
+    points[i] <- xt
+  }
+return(points)
+}
+
+#result1 <- AR1(mu=5,phi=0.8,sigma2 = 9,t=300)
+
+phi_vals <- c(-0.9,-0.2,0,0.2,0.9)
+par(mfrow=c(2,3))
+set.seed(12345)
+for (phi in phi_vals) {
+  x <- AR1(mu=5,phi=phi,sigma2 = 9,t=300)
+  plot(x,type="l",main=paste("phi = ",phi),
+       xlab=" Time ",
+       ylab=expression(x[t]),
+       col="#4E79A7",
+       lwd=1)
+  
+}
+
+#(b)
+library("rstan")
+
+#phi=0.4
+data1 <- AR1(mu=5,phi=0.4,sigma2=9,t=300)
+
+stan_data1 <- list(
+  T=length(data1),
+  x=data1
+)
+
+stan_model_code <- "
+data{
+  int<lower=1> T; #time points
+  vector[T] x;    #sequence
+}
+
+parameters {
+  real mu;
+  real<lower=-1, upper=1> phi;
+  real<lower=0> sigma;  #! using sigma instead of sigma2, more stable
+}
+
+  
+model{
+  mu~normal(0,100);
+  phi ~ uniform(-1, 1);
+  sigma~cauchy(0,5);  #heavy tail
+  x[1]~normal(mu,sigma);
+  for (t in 2:T) {
+    x[t]~ normal(mu+phi*(x[t-1]-mu),sigma);
+  }
+}  
+"
+
+fit1 <- stan(
+  model_code = stan_model_code,
+  data=stan_data1,
+  iter=2000,
+  chains=4,
+  seed=12345
+)
+
+
+
+#phi=0.98
+data2 <- AR1(mu=5,phi=0.98,sigma2=9,t=300)
+
+stan_data2 <- list(
+  T=length(data1),
+  x=data2
+)
+
+fit2 <- stan(
+  model_code = stan_model_code,
+  data=stan_data2,
+  iter=2000,
+  chains=4,
+  seed=12345
+)
+
+# mean of posterior, 95%ci,num of effective samples
+sum_fit1 <-summary(fit1)$summary
+fit1_df <- sum_fit1[1:3,c("mean","2.5%","97.5%","n_eff")]
+print(fit1_df)
+
+sum_fit2 <-summary(fit2)$summary
+fit2_df <- sum_fit2[1:3,c("mean","2.5%","97.5%","n_eff")]
+print(fit2_df)
+
+#evaluate the convergence of tha samplers
+#print(fit1, pars=c("mu", "phi", "sigma"))
+#print(fit2, pars=c("mu", "phi", "sigma"))
+
+
+
+#plot the joint posteriors of mu and phi
+par(mfrow=c(1,1))
+pairs(fit1, pars=c("mu", "phi"))
+pairs(fit2, pars=c("mu", "phi"))
+
+library(bayesplot)
+
+
+posterior1 <- as.array(fit1)
+mcmc_pairs(posterior1, pars = c("mu", "phi"))
+
+  
+posterior2 <- as.array(fit2)
+mcmc_pairs(posterior2, pars = c("mu", "phi"))
+ 
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
