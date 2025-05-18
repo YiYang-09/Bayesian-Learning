@@ -20,7 +20,7 @@ To obtain the MLE of $\beta$, we fit the model using the `glm()` function with a
 
 ```{r}
 # read data
-data <- read.table("D:\\liu\\BL\\Bayesian-Learning\\lab3\\eBayNumberOfBidderData_2025.dat", header = T)
+data <- read.table("eBayNumberOfBidderData_2025.dat", header = T)
 
 # (a) Poisson MLE using glm
 mod <- glm(nBids ~ PowerSeller + VerifyID + Sealed + Minblem + MajBlem +
