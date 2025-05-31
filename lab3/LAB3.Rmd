@@ -436,7 +436,7 @@ kable(round(beta_tilde, 2), caption = "Posterior mode estimates of beta")
 
 We also extract the observed information matrix $J_Y (\tilde{\beta})$
 ```{r}
-kable(round(Hessian, 2), caption = "Negative Hessian (observed information) at the posterior mode")
+kable(solve(Hessian), 2, caption = "Negative Hessian (observed information) at the posterior mode")
 ```
 
 To obtain samples from the true posterior distribution of the regression coefficients $\beta$, we implement the Random Walk Metropolis-Hastings algorithm. The proposal distribution is defined as a multivariate normal random walk:
